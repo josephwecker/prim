@@ -1,0 +1,2 @@
+#!/bin/bash
+vim --nofork -M -n -N -u NONE -X -f --cmd ':exec "ruby $stderr.puts RUBY_DESCRIPTION" | q'
