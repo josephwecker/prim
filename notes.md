@@ -71,6 +71,23 @@ stack-exchange
   - possibly normalize votes by time? (would possibly not make sense because
     each one would be an s-curve?)
 
+Potential plugins:
+  - stack-exchange sites
+  - vim.org scripts (and sources??)
+  - online manpage repositories? (can't seem to find many good ones...)
+  - forums- esp. some well-known ones
+  - kernel mailing list
+  - google
+  - wikipedia
+  - github
+  - ruby-gem detailed info:  [like here](https://www.ruby-toolbox.com)
+  - rfc, ietf, iso, w3c
+  - [algorithms & data structures](http://xlinux.nist.gov/dads/) actually
+  [for indexing](http://xlinux.nist.gov/dads/ui.html)
+  - maybe google w/ certain site/inurl filters?
+
+
+
 ##### Preview
 
 - specialized statusline - esp. emphasize how many matches per type - w/
