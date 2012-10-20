@@ -117,3 +117,92 @@ Each finds its own project-root.
 
     need a quick key also to "reset" it- just want to briefly look at [c], for
     example, and then have it pop back to [a] and not change the order...
+
+
+grouping... something along the lines of:
+
+:au BufWinEnter * wincmd t | 4wincmd w | exec expand("<abuf>") . "buffer"
+
+(where that 4 is the window where you really want it)
+(will need some special processing for help files, quickfix buffers, and
+preview buffers...)
+
+
+
+##### PrimContext
+
+From help windows.txt:
+
+:ped[it][!] [++opt] [+cmd] {file}
+		Edit {file} in the preview window.  The preview window is
+		opened like with |:ptag|.  The current window and cursor
+		position isn't changed.  Useful example: >
+			:pedit +/fputc /usr/include/stdio.h
+<
+							*:ps* *:psearch*
+:[range]ps[earch][!] [count] [/]pattern[/]
+		Works like |:ijump| but shows the found match in the preview
+		window.  The preview window is opened like with |:ptag|.  The
+		current window and cursor position isn't changed.  Useful
+		example: >
+			:psearch popen
+<		Like with the |:ptag| command, you can use this to
+		automatically show information about the word under the
+		cursor.  This is less clever than using |:ptag|, but you don't
+		need a tags file and it will also find matches in system
+		include files.  Example: >
+  :au! CursorHold *.[ch] nested exe "silent! psearch " . expand("<cword>")
+<		Warning: This can be slow.
+
+Example						*CursorHold-example*  >
+
+  :au! CursorHold *.[ch] nested exe "silent! ptag " . expand("<cword>")
+
+This will cause a ":ptag" to be executed for the keyword under the cursor,
+when the cursor hasn't moved for the time set with 'updatetime'.  The "nested"
+makes other autocommands be executed, so that syntax highlighting works in the
+preview window.  The "silent!" avoids an error message when the tag could not
+be found.  Also see |CursorHold|.  To disable this again: >
+
+  :au! CursorHold
+
+A nice addition is to highlight the found tag, avoid the ":ptag" when there
+is no word under the cursor, and a few other things: >
+
+  :au! CursorHold *.[ch] nested call PreviewWord()
+  :func PreviewWord()
+  :  if &previewwindow			" don't do this in the preview window
+  :    return
+  :  endif
+  :  let w = expand("<cword>")		" get the word under cursor
+  :  if w =~ '\a'			" if the word contains a letter
+  :
+  :    " Delete any existing highlight before showing another tag
+  :    silent! wincmd P			" jump to preview window
+  :    if &previewwindow			" if we really get there...
+  :      match none			" delete existing highlight
+  :      wincmd p			" back to old window
+  :    endif
+  :
+  :    " Try displaying a matching tag for the word under the cursor
+  :    try
+  :       exe "ptag " . w
+  :    catch
+  :      return
+  :    endtry
+  :
+  :    silent! wincmd P			" jump to preview window
+  :    if &previewwindow		" if we really get there...
+  :	 if has("folding")
+  :	   silent! .foldopen		" don't want a closed fold
+  :	 endif
+  :	 call search("$", "b")		" to end of previous line
+  :	 let w = substitute(w, '\\', '\\\\', "")
+  :	 call search('\<\V' . w . '\>')	" position cursor on match
+  :	 " Add a match highlight to the word at this position
+  :      hi previewWord term=bold ctermbg=green guibg=green
+  :	 exe 'match previewWord "\%' . line(".") . 'l\%' . col(".") . 'c\k*"'
+  :      wincmd p			" back to old window
+  :    endif
+  :  endif
+  :endfun
