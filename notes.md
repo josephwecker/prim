@@ -46,10 +46,43 @@
 
 ### Scratch
 
+A kind of grep that instead of just -A/B/C for context lines, actually shows
+language-context- like module/function/relevant-path-forks (if-statements) etc.
+== tiny-context
+
+project
+  |- subdir
+     |- source file
+        |- [class]
+           |- function/method/module
+              |- local variables (?)
+                 |- code-path branch
+
+
+Another thing- kind of a mini-find-results for the word under the character-
+but more informative:
+ - "blah" is:
+   - local variable name in such-and-such file
+   - name of a struct defined here...
+   - global variable in this other ...
+(can at least be minimally based on the syntax-match and maybe even a quick
+syntax-most-likely (using markov chains...))
+
+
+It would be awesome to either find or create a real gdb plugin- one that uses
+`sign` etc. (clewn)
+
+It would also be awesome to either find or create a real unit-testing plugin-
+including continuous integration.
+
 Need to "quick-view" another tab while in insert mode- and remain in insert
 mode- just a quick glance- with most recent quick-glance tab remembered for
 even quicker glances- for when referencing a big source file a bunch.
 
+With tag search-results, not possibly kind of a connection-graph preview
+available: for example, if a variable is selected, show it's type, but also
+information on other files that have used that type, examples of other
+variables, etc., as well as other examples of variables w/ the same name...
 
 Fill quickfix or location buffer with all instances of a tag in project so they
 can all be renamed etc.
@@ -58,12 +91,32 @@ Potentially try again to get syntastic working correctly
 
 Omnicomplete working, of course...
 
+
+Automatically "guess" most of the main include-path, for tag search etc. etc.,
+by including all subdirectories of the project that have source in them... ?
+Or possibly only lazily after doing `checkpath`
+
 #### PrimFind
 
 tag refreshing
   - when file has been changed, quick cpp pass on file to make sure syntax is
     good2go. if good, run ctags/cscope on it real quick. If not good to go,
     indicate in status-line (or something)
+
+tag sub-priority
+(from help tags)
+  When there are multiple matches for a tag, this priority is used:
+
+  1. "FSC"  A full matching static tag for the current file.
+  2. "F C"  A full matching global tag for the current file.
+  3. "F  "  A full matching global tag for another file.
+  4. "FS "  A full matching static tag for another file.
+  5. " SC"  An ignore-case matching static tag for the current file.
+  6. "  C"  An ignore-case matching global tag for the current file.
+  7. "   "  An ignore-case matching global tag for another file.
+  8. " S "  An ignore-case matching static tag for another file.
+
+
 
 Less weight to anything in a path-part that starts with a dot
 
@@ -86,7 +139,8 @@ Potential plugins:
   [for indexing](http://xlinux.nist.gov/dads/ui.html)
   - maybe google w/ certain site/inurl filters?
 
-
+Use location list so there can be different active ones without having to use
+quickfix-error-lists.
 
 ##### Preview
 
@@ -127,6 +181,11 @@ grouping... something along the lines of:
 (will need some special processing for help files, quickfix buffers, and
 preview buffers...)
 
+
+Destination window:
+  1. Look for any primbuf windows- if none, vsplit and wincmd to the far right
+     full height, resize vert
+  2. 
 
 
 ##### PrimContext
