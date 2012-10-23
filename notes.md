@@ -46,6 +46,24 @@
 
 ### Scratch
 
+Set up primfind so that as it continues to find results etc the buffer keeps
+updating. Method:
+  - set buffer to modified & writeable
+  - set autosave w/ tight interval
+  - override the autocmd for writing the buffer
+  - nop the actual write, but use the opportunity to modify the buffer -
+    be sure not to listen to the write autocmd for a bit (if possible).
+  - be sure that currently selected line remains selected if possible (based on
+    some sort of ID?)
+  - also, ideally, update the status bar with some kind of status indicator
+    and/or spinner (-\|/...)
+
+Probably better to set up the "trigger"-generating buffer separately from the
+one actually being modified...
+
+
+
+
 A kind of grep that instead of just -A/B/C for context lines, actually shows
 language-context- like module/function/relevant-path-forks (if-statements) etc.
 == tiny-context
