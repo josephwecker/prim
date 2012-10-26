@@ -1,0 +1,5 @@
+or just cd to last in makefile-list
+
+a:
+	@echo $(dir $(realpath $(MAKEFILE_LIST)))
+	@echo $(dir $(realpath $(CURDIR)/$(lastword $(MAKEFILE_LIST))))
