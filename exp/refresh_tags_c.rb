@@ -11,38 +11,122 @@
 # 
 #
 
-require 'pathname'
 require 'pp'
 
-class FNV1a
-  I32 = 0x811c9dc5;    I64 = 0xcbf29ce484222325
-  P32 = 0x01000193;    P64 = 0x100000001b3
-  M32 = 2 ** 32   ;    M64 = 2 ** 64
-  def self.h32(d) d.bytes.reduce(I32){|h,b|((h^b)*P32)%M32} end
-  def self.h64(d) d.bytes.reduce(I64){|h,b|((h^b)*P64)%M64} end
+require 'pathname'
+Path =   Pathname
+class Nilish
+  def self.global() return $__NILISH ||= self.new end
+  def method_missing(m,*a,&b)
+    case
+    when nil.respond_to?(m)   then nil.send(m,*a,&b)
+    when false.respond_to?(m) then false.send(m,*a,&b)
+    when m.to_s[-1..-1]=='?'  then nil
+    else self end
+  end
+  def blank?()       true                                         end
+  def nil?()         true                                         end
+  def empty?()       true                                         end
+  def inspect()      "nil(ish)"                                   end
+end
+class Object
+  def blank?()       respond_to?(:empty?) ? empty? : !self        end
+  def maybe()        self.nil? ? Nilish.global : self             end
+  def present?()     !blank?                                      end
+  def presence()     self if present?                             end
+end
+class String
+  def fnv32() bytes.reduce(0x811c9dc5)        {|h,b|((h^b)*0x01000193)    % (2**32)} end
+  def fnv64() bytes.reduce(0xcbf29ce484222325){|h,b|((h^b)*0x100000001b3) % (2**64)} end
+  def method_missing(m,*a,&b) to_p.respond_to?(m) ? to_p.send(m,*a,&b) : super       end
+  def blank?()       self !~ /[^[:space:]]/                       end
+  def to_p()         Path.new(self)                               end
+  def respond_to?(m,p=false)  super || to_p.respond_to?(m,p)      end
+  def ===(other)     r=super(other); r ? r : to_p === other       end
+end
+class NilClass;      def blank?() true  end                       end
+class FalseClass;    def blank?() true  end                       end 
+class TrueClass;     def blank?() false end                       end
+class Array
+  alias_method       :blank?, :empty?
+  def norm_paths()   self.flatten.map{|i| i.exp}.uniq             end
+end
+class Hash;          alias_method :blank?, :empty?                end
+class Numeric;       def blank?() false end                       end
+module Enumerable
+  def amap (m,*a,&b) self.map {|i| i.send(m,*a,&b)}               end
+  def amap!(m,*a,&b) self.map!{|i| i.send(m,*a,&b)}               end
+end
+class Path
+  def **  (other)    self + other.to_p                            end
+  def r?  ()         readable_real?                               end
+  def w?  ()         writable_real?                               end
+  def x?  ()         executable_real?                             end
+  def rw? ()         r? && w?                                     end
+  def rwx?()         r? && w? && x?                               end
+  def perm?()        exp.dir? ? rwx? : rw?                        end
+  def exp ()         return @exp ||= self.expand_path             end
+  def real()         begin exp.realpath rescue exp end            end
+  def to_p()         self                                         end
+  def dir?()         directory?                                   end
+  def dir ()         exp.dir? ? exp : exp.dirname                 end
+  def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
+  def ===(other)     real.to_s == other.real.to_s                 end
+  def [](pattern)    Path.glob((dir + pattern.to_s).to_s, File::FNM_DOTMATCH)  end
+  def relation_to(other)
+    travp = other.exp.relative_path_from(exp).to_s
+    if    travp =~ /^(..\/)+$/ then :child
+    else  travp =~ /^..\// ? :stranger : :parent end
+  end
 end
 
-class Pathname
-  def dir()       self.directory? ? self : self.dirname end
 
-  def [](pattern) Pathname.glob((self.dir + pattern.to_s).to_s, File::FNM_DOTMATCH) end
 
-  def proj_root
+class Proj
+  def initialize(cwd, cf)
+    @p_cf  = nil
+    @p_cwd = (cwd || Path.pwd).exp
+    @p_cf  = cf.exp unless cf.blank?
+  end
+
+  def root_dir
+    wd_root = root_dir_for(@p_cwd)
+    return wd_root if @p_cf.blank?
+    cf_root = root_dir_for(@p_cf)
+    return @p_cwd  if wd_root.blank? && cf_root.blank?
+    return cf_root if wd_root.blank?
+    return wd_root if cf_root.blank?
+    return wd_root if wd_root === cf_root
+    return wd_root if wd_root.relation_to(cf_root) == :parent
+    return cf_root
+  end
+
+  def [](pattern,refresh=false)
+    @cached_lookups.delete(pattern) if refresh
+    return @cached_lookups[pattern] ||= root_dir[pattern]
+  end
+
+  def makefiles() self['**/Makefile'] end
+
+  def has_root_makefile?
+    makefiles.each{|mk| return true if mk.dir === root_dir}
+    return false
+  end
+
+  private
+  def root_dir_for(path)
     in_cvs = in_svn = in_rcs = false
-    tentative = self.dir
+    tentative = path.dir
     tentative.dup.ascend do |d|
       has_cvs = has_svn = has_rcs = false
       d.children.each do |c|
         case c.basename.to_s
-        when '.hg'        then return d
-        when '.git'       then return d
-        when '.svn'       then in_svn = d; has_svn = true
-        when 'CVS'        then in_cvs = d; has_cvs = true
-        when 'RCS'        then in_rcs = d; has_rcs = true
-        when /Makefile.*/ then tentative = d
-        when 'Rakefile'   then tentative = d
-        when 'configure'  then tentative = d
-        when 'LICENSE'    then tentative = d
+        when '.hg'||'.git'           then return d
+        when '.svn' then in_svn = d; has_svn = true
+        when 'CVS'  then in_cvs = d; has_cvs = true
+        when 'RCS'  then in_rcs = d; has_rcs = true
+        when /[MR]akefile.*/         then tentative = d
+        when 'configure'||'LICENSE'  then tentative = d
         end
       end
       return in_svn if in_svn && !has_svn
@@ -51,40 +135,65 @@ class Pathname
     end
     return tentative
   end
+end
 
-  def relation_to(other)
-    other = Pathname.new(other) if other.is_a? String
-    travp = other.expand_path.relative_path_from(self.expand_path).to_s
-    if    travp =~ /^(..\/)+$/ then return :child
-    elsif travp =~ /^..\//     then return :stranger
-    else  return :parent end
+# TODO:
+#   - Dispatch to RTags<Language>
+#   - For C:
+#     - Calculate & spawn highest priority: cf's directory
+#       - End-to-end, for at least that much...
+
+class RTags
+  TAGDIR       = '.tags'
+  GLOBALTAGDIR = '~/.prim/tags'
+
+  def initialize(cwd=nil, cfile=nil, language=:c)
+    @cwd   = cwd      || Path.pwd
+    @cfile = cfile
+    @lang  = language || :c
+    @proj  = Proj.new(cwd, cfile)
+  end
+  def self.refresh(cwd=nil,cf=nil,lang=:c) new(cwd, cf, lang).do_refresh end
+  def fork_refresh(dir) Process.detach(fork{refresh_dir(dir)})           end
+  def refresh_dir (dir) throw("Not yet implemented for #{@lang}")        end
+end
+
+class RTagsC < RTags
+  def do_refresh
+    fork_refresh(@cfile.dir) if @cfile.maybe.dir.dir?
+  end
+
+  def refresh_dir(path)
+    return unless path.maybe.dir?
+    @srcdir = path
+    @tagdir = path ** TAGDIR
+    @tagdir = GLOBALTAGDIR unless @tagdir.maybe.perm?
+    throw "Couldn't find a good tagfile location for '#{path}'"         unless @tagdir.maybe.perm?
+    throw "Couldn't create tagfile location '#{@tagdir}' for '#{path}'" unless @tagdir.dir!.maybe.perm?
+
+    # TODO:
+    #  - generate the makefile
+    #  - run the makefile
+    #
   end
 end
 
-class Proj
+if __FILE__ == $0
+  RTagsC.refresh ARGV[0], ARGV[1]
+end
+
+
+=begin
+class RTags
+  attr_reader :proj
+
+  def self.flat_fname(path)
+    path = Pathname.new(path) if path.is_a? String
+    FNV1a::h64(path.cleanpath.to_s).to_s(36)
+  end
+
   def initialize(cwd, cf)
-    @p_cf  = nil
-    @p_cwd = Pathname.new(cwd || Pathname.pwd).expand_path
-    @p_cf  = Pathname.new(cf).expand_path  unless cf.nil?
-  end
-
-  def root_dir
-    wd_root = @p_cwd.proj_root
-    return wd_root if @p_cf.nil?
-    cf_root = @p_cf.proj_root
-    return @p_cwd  if wd_root.nil? && cf_root.nil?
-    return cf_root if wd_root.nil?
-    return wd_root if cf_root.nil?
-    return wd_root if wd_root.to_s == cf_root.to_s
-    return wd_root if wd_root.relation_to(cf_root) == :parent
-    return cf_root
-  end
-
-  def makefiles() return @makefiles ||= root_dir['**/Makefile'] end
-
-  def has_root_makefile?()
-    makefiles.each{|mk| return true if mk.dir.to_s == root_dir.to_s}
-    return false
+    @proj = Proj.new(cwd, cf)
   end
 
   def include_dirs(language=:c)
@@ -93,14 +202,18 @@ class Proj
     return @inc_dirs[language] = self.send('inc_dirs_for_'+language.to_s)
   end
 
+  def refresh
+    #pp @proj.makefiles
+  end
+
   private
   def inc_dirs_for_c
     res  = c_makefile_inc_dirs
     res += c_find_inc_dirs      if res.empty? || !has_root_makefile?
     res += c_system_inc_dirs    if res.empty?
-    res  = res.select{|d| !d.nil? && d.to_s.strip.length>0 && d.to_s.strip != '/'}
-    res.map!{|d| d.is_a?(Pathname) ? d : Pathname.new(d.to_s)}
-    res.compact.map{|d| d.expand_path.dir}.sort.uniq
+    res  = res.select{|d| !d.blank? && d.to_s.strip.length>0 && d.to_s.strip != '/'}
+    res.map!{|d| d.to_p}
+    res.compact.map{|d| d.exp.dir}.sort.uniq
   end
 
   def c_makefile_inc_dirs
@@ -118,20 +231,21 @@ class Proj
     end
     @mkcares = @mdb.split(/(?=^\s*CURDIR\s*:?=.+)/).map do |m|
       root = m[/^\s*CURDIR\s*:?=\s*([^\s]+)/,1]
-      m.scan(/(?:\s+|^)([^\s\$\(\)]+\.[hci])(?::|$|\s(?=[^=]*$))/).map{|f| f=f[0].strip; f[0..0]=='/' ? f : root+'/'+f}
+      m.scan(/(?:\s+|^)([^\s\$\(\)]+\.[hci])(?::|$|\s(?=[^=]*$))/).map do |f|
+        f=f[0].strip; f[0..0]=='/' ? f : root+'/'+f
+      end
     end
-    @mkcares = @mkcares.flatten.map{|f| !f.nil? && f.size>0 ? Pathname.new(f).expand_path : nil}.compact.uniq
-    buildinc = @mcmds.scan(/^(?!#)[^\s]*(?:g?cc|clang)\s+.*/).join("\n").scan(/\s-I([^\s]+)\s/).
-                      flatten.map{|f| Pathname.new(f).expand_path.dir}
-    includes = (@mkcares.map{|f|f.dir} + buildinc).uniq
+    @mkcares = @mkcares.flatten.map{|f| f.present? ? f.exp : nil}.compact.uniq
+    includes = @mcmds.scan(/^(?!#)[^\s]*(?:g?cc|clang)\s+.*/).join("\n")
+    includes = includes.scan(/\s-I([^\s]+)\s/)
+    includes = (includes + @mkcares).norm_paths.map{|f| f.dir}.uniq
 
-    #cpp = `/bin/bash -c 'command -v cpp'`.strip
-    cpp = 'gcc'
-    if @mkcares.size > 0 && cpp.strip.size > 0
+    if @mkcares.size > 0
       inc = includes.map{|i| "-I'#{i}'"}.join(' ')
-      cmd = "'#{cpp}' #{inc} -E -M -MG"
+      cmd = "cpp #{inc} -E -M -MG"
       @mkcares.each do |f|
-        includes += `#{cmd} '#{f}' | sort -u`.scan(/^\s*([^\s]+?\.[ch])(?:\s|:|$)/)
+        more_cares = `#{cmd} '#{f}' 2>/dev/null | sort -u`.scan(/^\s*([^\s]+?\.[ch])(?:\s|:|$)/)
+        includes  += more_cares.norm_paths.map{|f| f.dir}.uniq
       end
     end
     includes.flatten.uniq
@@ -146,26 +260,9 @@ class Proj
     sys += ENV['CPATH'].split(':')          if ENV['CPATH']
     sys += ENV['C_INCLUDE_PATH'].split(':') if ENV['C_INCLUDE_PATH']
     sys += ENV['includedir'].split(/\s+/)   if ENV['includedir']
-    sys.flatten.uniq.sort.map{|d| d.to_s.length==0 ? nil : (d = Pathname.new(d).expand_path; d.dir)}
+    sys.flatten.uniq.sort.map{|d| d.to_s.length==0 ? nil : (d = Pathname.new(d).exp; d.dir)}
   end
 end
-
-class RTags
-  attr_reader :proj
-
-  def self.flat_fname(path)
-    path = Pathname.new(path) if path.is_a? String
-    FNV1a::h64(path.cleanpath.to_s).to_s(36)
-  end
-
-  def initialize(cwd, cf)
-    @proj = Proj.new(cwd, cf)
-  end
-
-  def refresh
-    pp @proj.makefiles
-  end
-end
-
 rt = RTags.new(Pathname.pwd, ARGV[0])
 pp rt.proj.include_dirs
+=end
