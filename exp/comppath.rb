@@ -1,5 +1,32 @@
 #!/usr/bin/env ruby
 
+class BitString
+  def initialize; @buf = '' end
+  def <<(v)
+    case v
+    when BitString; @buf += v.to_s
+    when String;    @buf += v
+    when Integer;   @buf += v.to_s(2)
+    when true;      @buf += '1'
+    when false;     @buf += '0'
+    end
+  end
+  def to_s; @buf end
+  #def bits; @buf.
+
+end
+
+
+def crunch(ascii)
+  bitstring = ascii.bytes.collect {|b| "%07b" % b}.join
+  [bitstring].pack("B*")
+end
+ 
+def expand(binary)
+  bitstring = binary.unpack("B*")[0]
+  bitstring.scan(/[01]{7}/).collect {|b| b.to_i(2).chr}.join
+end
+
 MAXNGRAM  = 2
 $totalsz  = 0
 $totalg   = 0
