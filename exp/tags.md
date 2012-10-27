@@ -16,3 +16,7 @@ proj:
 ~/.prim
        /projects
                 /(hashed-name
+
+
+
+1 | 2.96% * -7 + (100-2.96)

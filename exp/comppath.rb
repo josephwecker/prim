@@ -1,10 +1,12 @@
 #!/usr/bin/env ruby
 
 MAXNGRAM  = 2
+$totalsz  = 0
 $totalg   = 0
 $res      = []
-$perc_acc = 0
+$count_acc = 0
 $rank     = 0
+$bytesz_acc = 0
 class Trie
   attr_accessor :root
   def initialize() @root = Hash.new end
@@ -21,13 +23,21 @@ class Trie
 end
 
 def prgram(char,count)
-  res        = "%5d | %10d | % 9.4f%% | % 9.4f%% | %s | [%s]\n"
   sz         = char.scan(/./um).size
-  dispc      = "'#{char}'"+(' '*(12-sz))
-  cval       = char.unpack('C*').map{|n|'0x'+n.to_s(16)}.join(',')
-  $perc_acc += count
-  $rank      += 1
-  puts(res % [$rank, count, count.to_f / $totalg.to_f * 100.0, $perc_acc.to_f / $totalg.to_f * 100.0, dispc, cval])
+  dispc      = "'#{char}'"+(' '*([24-sz,0].max))
+  $count_acc += count
+  $rank     += 1
+  cval       = char.unpack('C*')
+  #bytesz     = cval.size * count.to_f
+  #$bytesz_acc+= bytesz
+  #perc_cont   = bytesz.to_f / $totalsz.to_f * 100.0
+  #perc_cont_a = $bytesz_acc.to_f / $totalsz.to_f * 100.0
+  #$aperc_cont+= perc_cont
+  cval       = cval.map{|n|'0x'+n.to_s(16)}.join(',')
+  res        = "%5d | %10d | % 9.4f%% | % 9.4f%% | %s | [%s]\n"
+  puts(res % [$rank, count, count.to_f / $totalg.to_f * 100.0, $count_acc.to_f / $totalg.to_f * 100.0, dispc, cval])
+  #res        = "%5d | %10d | % 9.4f%% | % 9.4f%% | %s | [%s]\n"
+  #puts(res % [$rank, count, perc_cont, perc_cont_a, dispc, cval])
 end
 
 def nthgram(node, prefix='')
@@ -45,7 +55,8 @@ ARGF.each_line do |dat|
     $stderr.flush
   end
   full = dat.strip.split /\W+/
-  dat  = dat.strip.scan(/./um)
+  $totalsz += dat.strip.bytes.to_a.size
+  dat  = dat.strip.scan  /./um
   (0..dat.size-1).each{|i|t<<dat[i..-1]}
   full.each{|f| t.<<(f,true)}
 end
@@ -53,5 +64,5 @@ end
 $stderr.puts "Processing ngrams"
 nthgram(t.root)
 $stderr.puts "Sorting and emitting ngrams"
-$res.sort_by{|c,v| -v}.each{|c,v| prgram(c,v)}
+$res.sort_by{|c,v| -(v * c.unpack('C*').size)}.each{|c,v| prgram(c,v)}
 $stderr.puts "Done"
