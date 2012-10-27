@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-MAXNGRAM  = 3
+MAXNGRAM  = 2
 $totalg   = 0
 $res      = []
 $perc_acc = 0
@@ -8,9 +8,9 @@ $rank     = 0
 class Trie
   attr_accessor :root
   def initialize() @root = Hash.new end
-  def <<(arr)
+  def <<(arr, fullword=false)
     node = @root
-    arr[0..MAXNGRAM-1].each do |v|
+    arr[0..(fullword ? -1 : MAXNGRAM-1)].each do |v|
       node[v]     ||= Hash.new
       node[v][:i] ||= 0
       node[v][:i]  += 1
@@ -39,13 +39,15 @@ t = Trie.new
 dircount = 0
 ARGF.each_line do |dat|
   dircount += 1
-  break if dircount > 50000
+  #break if dircount > 500000
   if (dircount % 2000) == 0
     $stderr.puts "#{dircount} - #{dat.strip}"
     $stderr.flush
   end
-  dat=dat.strip.scan(/./um)
+  full = dat.strip.split /\W+/
+  dat  = dat.strip.scan(/./um)
   (0..dat.size-1).each{|i|t<<dat[i..-1]}
+  full.each{|f| t.<<(f,true)}
 end
 
 $stderr.puts "Processing ngrams"
