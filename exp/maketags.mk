@@ -36,7 +36,7 @@ mk_incs  : $(MK_TGTS)
 #	@#ruby -e 'puts $$<.read.scan(/\B(-I(?!\S*?[$$%()])\S+)/).uniq' $<
 #	@#ruby -e 'puts $$<.read.scan(/\B(-I(?!\S*?[$$%()])\S+)|\b(CURDIR.*)/).uniq' $<
 
-define MK_DRY_RB
+define makefile_dryrun_rb
 	note = "Generating dry-run for $<"
 	puts note and `echo '# #{note}' > $@`
 	class String; def esc; empty? ? "''" : gsub(/([^A-Za-z0-9_\-=.,:\/@\n])/n,"\\\\\\1").gsub(/\n/,"'\n'") end end
@@ -52,14 +52,13 @@ define MK_DRY_RB
 	dry1   = `#{dryrun} #{goals.esc} 2>&1 1>$@`
 	if dry1 =~ /No rule/
 		goals -= dry1.scan(/`[^']+'/).map{|r|r[1..-2]}
-		dry2   = `#{dryrun} #{goals.esc} 1>$@`.strip
+		dry2   = `#{dryrun} #{goals.esc} &>$@`.strip
 	end
 	exit 0
 endef
 
-
 .SECONDEXPANSION:
 %.dry    : $$(call id_to_path,%)
-	$(call one_shell_ruby,MK_DRY_RB)
+	$(call one_shell_ruby,makefile_dryrun_rb)
 .%.deps  : $$(call id_to_path,%)
 	cpp #{inc} -E -M -MG

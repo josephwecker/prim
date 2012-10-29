@@ -1,78 +1,59 @@
 #!/usr/bin/env ruby
-
-# Given:
-#   - current working-directory
-#   - current buffer
 #
-# Prioritized refreshing / generating of ctag files
+# - More-or-less realtime (git branch change, save buffer, etc.)
+#   - Updated tagfiles
+#   - Updated cscope DBs (so that normal searches can always be done with -d)
+#   - Updated dependency lists
+# - All in the background, as efficiently as possible, and prioritized by
+#   proximity to a given file.
+#
 # 
-#
-# 1. Look for existing makefiles
-# 
-#
-
-require 'pp'
 
 require 'pathname'
 Path =   Pathname
 class Nilish
-  def self.global() return $__NILISH ||= self.new end
+  def self.global() $__N||= self.new end; def inspect;"nil(ish)"  end
+  def blank?() true end;  def nil?() true end;  def empty?() true end
   def method_missing(m,*a,&b)
-    case
-    when nil.respond_to?(m)   then nil.send(m,*a,&b)
-    when false.respond_to?(m) then false.send(m,*a,&b)
-    when m.to_s[-1..-1]=='?'  then nil
+    case when nil.respond_to?(m)   then nil.send(m,*a,&b)
+         when false.respond_to?(m) then false.send(m,*a,&b)
+         when m.to_s[-1..-1]=='?'  then nil
     else self end
   end
-  def blank?()       true                                         end
-  def nil?()         true                                         end
-  def empty?()       true                                         end
-  def inspect()      "nil(ish)"                                   end
 end
 class Object
-  def blank?()       respond_to?(:empty?) ? empty? : !self        end
-  def maybe()        self.nil? ? Nilish.global : self             end
-  def present?()     !blank?                                      end
-  def presence()     self if present?                             end
+  def blank?()   respond_to?(:empty?) ? empty? : !self            end
+  def maybe()    self.nil? ? Nilish.global : self                 end
+  def present?() !blank? end;     def presence() self if present? end
 end
 class String
-  def fnv32() bytes.reduce(0x811c9dc5)        {|h,b|((h^b)*0x01000193)    % (2**32)} end
-  def fnv64() bytes.reduce(0xcbf29ce484222325){|h,b|((h^b)*0x100000001b3) % (2**64)} end
+  def fnv32() bytes.reduce(0x811c9dc5)        {|h,b|((h^b)*0x01000193)    % (1<<32)} end
+  def fnv64() bytes.reduce(0xcbf29ce484222325){|h,b|((h^b)*0x100000001b3) % (1<<64)} end
   def method_missing(m,*a,&b) to_p.respond_to?(m) ? to_p.send(m,*a,&b) : super       end
-  def blank?()       self !~ /[^[:space:]]/                       end
-  def to_p()         Path.new(self)                               end
+  def blank?()                self !~ /[^[:space:]]/              end
+  def to_p()                  Path.new(self)                      end
   def respond_to?(m,p=false)  super || to_p.respond_to?(m,p)      end
-  def ===(other)     r=super(other); r ? r : to_p === other       end
+  def ===(p)                  r=super(p); r ? r : to_p===p        end
 end
-class NilClass;      def blank?() true  end                       end
-class FalseClass;    def blank?() true  end                       end 
-class TrueClass;     def blank?() false end                       end
-class Array
-  alias_method       :blank?, :empty?
-  def norm_paths()   self.flatten.map{|i| i.exp}.uniq             end
-end
-class Hash;          alias_method :blank?, :empty?                end
-class Numeric;       def blank?() false end                       end
+class NilClass; def blank?; true  end end; class FalseClass;  def blank?() true end  end 
+class TrueClass;def blank?; false end end; class Hash;  alias_method :blank?,:empty? end
+class Numeric;  def blank?; false end end; class Array; alias_method :blank?,:empty? end
 module Enumerable
   def amap (m,*a,&b) self.map {|i| i.send(m,*a,&b)}               end
   def amap!(m,*a,&b) self.map!{|i| i.send(m,*a,&b)}               end
 end
 class Path
-  def **  (other)    self + other.to_p                            end
-  def r?  ()         readable_real?                               end
-  def w?  ()         writable_real?                               end
-  def x?  ()         executable_real?                             end
-  def rw? ()         r? && w?                                     end
-  def rwx?()         r? && w? && x?                               end
-  def perm?()        exp.dir? ? rwx? : rw?                        end
-  def exp ()         return @exp ||= self.expand_path             end
-  def real()         begin exp.realpath rescue exp end            end
-  def to_p()         self                                         end
-  def dir?()         directory?                                   end
-  def dir ()         exp.dir? ? exp : exp.dirname                 end
+  def **  (p) self+p.to_p      end;  def r?  ()  readable_real?   end
+  def w?  ()  writable_real?   end;  def x?  ()  executable_real? end
+  def rw? ()  r? && w?         end;  def rwx?()  r? && w? && x?   end
+  def to_p()  self             end;  def dir?()  directory?       end
+  def perm?() exp.dir? ? rwx? : rw?                               end
+  def exp ()  return @exp ||= self.expand_path                    end
+  def real()  begin exp.realpath rescue exp end                   end
+  def dir ()  exp.dir? ? exp : exp.dirname                        end
   def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
-  def ===(other)     real.to_s == other.real.to_s                 end
-  def [](pattern)    Path.glob((dir + pattern.to_s).to_s, File::FNM_DOTMATCH)  end
+  def ===(p)  real.to_s == p.real.to_s                            end
+  def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
   def relation_to(other)
     travp = other.exp.relative_path_from(exp).to_s
     if    travp =~ /^(..\/)+$/ then :child
@@ -81,12 +62,18 @@ class Path
 end
 
 
+$_.strip!
+tdr="$P/subtags/#{$_.split("/")[0..-2].join("/")}"
+"$P/subtags/#{$_}.tags : $(PROJECT)/#{$_} | #{tdr}}\n" .
+"#{tdr} : ; mkdir -p #{tdr}"
+
 
 class Proj
   def initialize(cwd, cf)
-    @p_cf  = nil
-    @p_cwd = (cwd || Path.pwd).exp
-    @p_cf  = cf.exp unless cf.blank?
+    @cached_lookups = {}
+    @p_cf           = nil
+    @p_cwd          = (cwd || Path.pwd).exp
+    @p_cf           = cf.exp unless cf.blank?
   end
 
   def root_dir
@@ -106,20 +93,17 @@ class Proj
     return @cached_lookups[pattern] ||= root_dir[pattern]
   end
 
-  def makefiles() self['**/Makefile'] end
-
-  def has_root_makefile?
-    makefiles.each{|mk| return true if mk.dir === root_dir}
-    return false
-  end
+  def makefiles()  self['**/Makefile'] end
+  def sourcedirs() self['**/*.[chi]'].map{|f|f.split[0..-2].join}.uniq end
+  def has_root_makefile?() !self['Makefile'].empty? end
 
   private
   def root_dir_for(path)
     in_cvs = in_svn = in_rcs = false
     tentative = path.dir
-    tentative.dup.ascend do |d|
+    tentative.ascend do |d|
       has_cvs = has_svn = has_rcs = false
-      d.children.each do |c|
+      d['{.hg,.svn,CVS,RCS,[MR]akefile,configure,LICENSE}'].each do |c|
         case c.basename.to_s
         when '.hg'||'.git'           then return d
         when '.svn' then in_svn = d; has_svn = true
@@ -137,16 +121,9 @@ class Proj
   end
 end
 
-# TODO:
-#   - Dispatch to RTags<Language>
-#   - For C:
-#     - Calculate & spawn highest priority: cf's directory
-#       - End-to-end, for at least that much...
-
 class RTags
   TAGDIR       = '.tags'
   GLOBALTAGDIR = '~/.prim/tags'
-
   def initialize(cwd=nil, cfile=nil, language=:c)
     @cwd   = cwd      || Path.pwd
     @cfile = cfile
@@ -154,32 +131,28 @@ class RTags
     @proj  = Proj.new(cwd, cfile)
   end
   def self.refresh(cwd=nil,cf=nil,lang=:c) new(cwd, cf, lang).do_refresh end
-  def fork_refresh(dir) Process.detach(fork{refresh_dir(dir)})           end
+  #def do_refresh()    fork_refresh(@cfile.dir) if @cfile.maybe.dir.dir?  end
+  #def fork_refresh(dir) Process.detach(fork{refresh_dir(dir)})           end
   def refresh_dir (dir) throw("Not yet implemented for #{@lang}")        end
 end
 
 class RTagsC < RTags
-  def do_refresh
-    fork_refresh(@cfile.dir) if @cfile.maybe.dir.dir?
-  end
 
   def refresh_dir(path)
-    return unless path.maybe.dir?
-    @srcdir = path
-    @tagdir = path ** TAGDIR
-    @tagdir = GLOBALTAGDIR unless @tagdir.maybe.perm?
-    throw "Couldn't find a good tagfile location for '#{path}'"         unless @tagdir.maybe.perm?
-    throw "Couldn't create tagfile location '#{@tagdir}' for '#{path}'" unless @tagdir.dir!.maybe.perm?
-
-    # TODO:
-    #  - generate the makefile
-    #  - run the makefile
-    #
+    #return unless path.maybe.dir?
+    ##@srcdir = path
+    #@tagdir = path ** TAGDIR
+    #@tagdir = GLOBALTAGDIR unless @tagdir.maybe.perm?
+    #throw "Couldn't find a good tagfile location for '#{path}'"         unless @tagdir.maybe.perm?
+    #throw "Couldn't create tagfile location '#{@tagdir}' for '#{path}'" unless @tagdir.dir!.maybe.perm?
   end
 end
 
 if __FILE__ == $0
-  RTagsC.refresh ARGV[0], ARGV[1]
+  proj  = Proj.new(ARGV[0], ARGV[1])
+  p proj.has_root_makefile?
+
+  #RTagsC.refresh ARGV[0], ARGV[1]
 end
 
 
