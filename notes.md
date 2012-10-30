@@ -116,6 +116,19 @@ Or possibly only lazily after doing `checkpath`
 
 #### PrimFind
 
+* visible buffer files
+* existing buffer files (by recency?)
+* (retrievable) MRU/MRA files (esp accessed for read-only files)
+* (retrievable) past-find/search history (better if nav within file, keeping it
+  visible a while, etc., increases score to eliminate false positives)
+
+
+(text similarity gives 1/2 credit for case-difference when search=upper and
+res=lower. Gives even less- 1/4 credit if search=lower and res=upper)
+
+
+
+
 tag refreshing
   - when file has been changed, quick cpp pass on file to make sure syntax is
     good2go. if good, run ctags/cscope on it real quick. If not good to go,
