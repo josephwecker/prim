@@ -1,7 +1,7 @@
 path_to_id = $(shell echo $1 | base64 | tr '/=' '_-')
 id_to_path = $(shell echo $1 | tr '_-' '/=' | base64 -D)
 
-PROJ     = /home/jwecker/src/ffmpeg
+PROJ     = /Users/jwecker/src/ffmpeg
 #PDIRS    = $(shell find '$(PROJ)' -type d -not -path '*/.*')
 PID      = $(call path_to_id,$(PROJ))
 P        = $(wildcard ~)/.prim/$(PID)
@@ -23,7 +23,7 @@ $(TAGFILES)   : $P/subtags/%.tags : $(PROJ)/% |$(TAGDIRS)
 $P/tags       : $(TAGFILES)
 	@cd '$P/subtags' && printf $(META) | LC_ALL='C' sort -g -k1 -t'	' $(subst $P/subtags/,,$^) - > $@
 $P/cscope.out : $(SRCFILES) | $P
-	@cd '$(PROJ)' && cscope -b -q -U $(patsubst %,-I%,$(SRCDIRS)) -P'$(PROJ)' -R -f'$@'
+	@cd '$(PROJ)' && cscope -b -c -q -U $(patsubst %,-I%,$(SRCDIRS)) -P'$(PROJ)' -R -f'$@'
 
 
 
