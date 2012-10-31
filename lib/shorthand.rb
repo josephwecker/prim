@@ -1,5 +1,6 @@
 require 'pathname'
-Path =   Pathname
+require 'pp'
+Path =   Pathname unless defined?(Path)
 class Nilish
   def self.global()$__N||= self.new end
   def inspect()    "nil(ish)"       end
@@ -67,4 +68,54 @@ class Path
     else  travp =~ /^..\// ? :stranger : :parent end
   end
 end
+
+class Proj
+  def initialize(cwd, cf)
+    @cached_lookups = {}
+    @p_cf           = nil
+    @p_cwd          = (cwd || Path.pwd).exp
+    @p_cf           = cf.exp unless cf.blank?
+  end
+
+  def root_dir
+    wd_root = root_dir_for(@p_cwd)
+    return wd_root if @p_cf.blank?
+    cf_root = root_dir_for(@p_cf)
+    return @p_cwd  if wd_root.blank? && cf_root.blank?
+    return cf_root if wd_root.blank?
+    return wd_root if cf_root.blank?
+    return wd_root if wd_root === cf_root
+    return wd_root if wd_root.relation_to(cf_root) == :parent
+    return cf_root
+  end
+
+  def [](pattern,refresh=false)
+    @cached_lookups.delete(pattern) if refresh
+    return @cached_lookups[pattern] ||= root_dir[pattern]
+  end
+
+  private
+  def root_dir_for(path)
+    in_cvs = in_svn = in_rcs = false
+    tentative = path.dir
+    tentative.ascend do |d|
+      has_cvs = has_svn = has_rcs = false
+      d['{.hg,.svn,CVS,RCS,[MR]akefile,configure,LICENSE}'].each do |c|
+        case c.basename.to_s
+        when '.hg'||'.git'           then return d
+        when '.svn' then in_svn = d; has_svn = true
+        when 'CVS'  then in_cvs = d; has_cvs = true
+        when 'RCS'  then in_rcs = d; has_rcs = true
+        when /[MR]akefile.*/         then tentative = d
+        when 'configure'||'LICENSE'  then tentative = d
+        end
+      end
+      return in_svn if in_svn && !has_svn
+      return in_cvs if in_cvs && !has_cvs
+      return in_rcs if in_rcs && !has_rcs
+    end
+    return tentative
+  end
+end
+
 
