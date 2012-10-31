@@ -9,19 +9,109 @@
 module Kernel; def require_r(p) require File.join(File.dirname(caller[0]), p.to_str) end end
 require_r '../lib/shorthand.rb'
 require_r '../lib/vim.rb'
-
+require   'thread'
 
 
 module FastFind
-  class Fuzzy
-    def initialize(phrase_so_far)
-      @pwd = Path.pwd
-      @phrase = phrase_so_far
-      @
+  def self.register_plugin(klass, types)
+    @plugins ||= {}
+    [*types].each{|t| @plugins[t] ||= []; @plugins[t] << klass}
+  end
+
+  def self.fast_find(phrase_so_far)
+    @phrase = phrase_so_far
+    @final       = []
+    @raw_results = Queue.new
+    @scored_res  = Queue.new
+    @scorers     = @plugins[:scorer].map{|s| [qto=Queue.new,s.new(qto,@scored_res)]}
+    @finders     = @plugins[:finder].amap(:new,@scorers.amap(:[],0),@phrase)
+    @reporter    = Thread.new{reporting_loop}
+    @finders.each{|f|    f.thread.join}
+    @scorers.each{|iq,s| iq << :eof   }
+    @scorers.each{|iq,s| s.thread.join}
+    @scored_res << :eof
+    @reporter.join
+  end
+
+  def self.reporting_loop
+    last_reported = Time.now - 0.85
+    last_count    = 0
+    while (new_item = @scored_res.pop) != :eof
+      @final << new_item
+      if Time.now - last_reported > 1 && last_count < @final.size
+        last_reported = Time.now
+        last_count    = @final.size
+        report_update
+      end
+    end
+    report_update if @final.size > last_count
+  end
+
+  def self.report_update
+    $stderr.puts '--------------'
+    $stderr.puts @final[0..100].pretty_inspect
+    $stderr.flush
+  end
+
+  class FastFindPlugin
+    attr_accessor :thread
+    def self.ff_plugin(types) FastFind.register_plugin(self, types) end
+  end
+
+  class FastFindScorer < FastFindPlugin
+    def initialize(in_queue, out_queue)
+      @in_queue  = in_queue
+      @out_queue = out_queue
+      @thread    = Thread.new{run}
+    end
+    def run
+      loop do
+        item = @in_queue.pop
+        break if item == :eof
+        @out_queue << score_item(item)
+      end
+    end
+    def score_item(item) throw 'Need to implement score_item!' end
+  end
+
+#------------------------------------------------------------------------------------------------
+
+  # working directory
+  # working project directory
+  # vim working directory
+  # vim working project directory
+
+  class ClassicFind < FastFindPlugin
+    ff_plugin :finder
+
+    def initialize(res_queues, phrase, opts)
+      @res_queues = res_queues
+      @phrase     = phrase
+      @thread     = Thread.new{run}
     end
 
+    def run
+      IO.popen(['find','.','-name',@phrase.to_sh].join(' ')) do |find_io|
+        find_io.each_line{|line| @res_queues.each{|q| q << line}}
+      end
+    end
+  end
+
+  class BasicContextScore < FastFindScorer
+    ff_plugin :scorer
+    def initialize(in_queue, out_queue)
+      # TODO: any setup
+      super(in_queue, out_queue)
+    end
+
+    def score_item(item)
+      item
+    end
+  end
+
+  class VimContextScore < FastFindPlugin
   end
 end
 
 search = ARGV[0]
-
+FastFind.fast_find(search)
