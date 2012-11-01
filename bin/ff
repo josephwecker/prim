@@ -14,6 +14,7 @@ require   'thread'
 $pwd = Path.pwd
 
 module FastFind
+  OPTIONS = Set[]
   def self.register_plugin(klass, types)
     @plugins ||= {}
     [*types].each{|t| @plugins[t] ||= []; @plugins[t] << klass}
@@ -21,6 +22,7 @@ module FastFind
 
   def self.fast_find(phrase_so_far)
     @phrase      = phrase_so_far
+    OPTIONS << :fuzzy
 
     @final       = []
 
@@ -97,8 +99,11 @@ module FastFind
     end
 
     def run
-      IO.popen(['find',$pwd.exp.to_sh,'-name',@phrase.to_sh].join(' ')) do |find_io|
-        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>line.strip.rel.rel($pwd)}}}
+      if OPTIONS[:fuzzy]
+        phrase = '*' + @phrase.each_char.to_a.join('*').gsub(/[a-z]/){|c| "[#{c}#{c.upcase}]"}+'*'
+      else phrase = @phrase end
+      IO.popen(['cd',$pwd.to_sh,'&&','find','.','-path',phrase.to_sh].join(' ')) do |find_io|
+        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>Path.new(line.strip)}}}
       end
     end
   end
@@ -121,6 +126,7 @@ end
 
 search = ARGV[0]
 $pwd   = ARGV[1] if ARGV[1]
+$pwd   = $pwd.real
 FastFind.fast_find(search)
 
 rescue => exception
