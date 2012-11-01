@@ -5,12 +5,13 @@
 # - score all candidates
 # - update sorted outputs as data becomes available (?)
 #
-
+begin
 module Kernel; def require_r(p) require File.join(File.dirname(caller[0]), p.to_str) end end
 require_r '../lib/shorthand.rb'
 require_r '../lib/vim.rb'
 require   'thread'
 
+$pwd = Path.pwd
 
 module FastFind
   def self.register_plugin(klass, types)
@@ -19,13 +20,17 @@ module FastFind
   end
 
   def self.fast_find(phrase_so_far)
-    @phrase = phrase_so_far
+    @phrase      = phrase_so_far
+
     @final       = []
+
     @raw_results = Queue.new
     @scored_res  = Queue.new
+
     @scorers     = @plugins[:scorer].map{|s| [qto=Queue.new,s.new(qto,@scored_res)]}
     @finders     = @plugins[:finder].amap(:new,@scorers.amap(:[],0),@phrase)
     @reporter    = Thread.new{reporting_loop}
+
     @finders.each{|f|    f.thread.join}
     @scorers.each{|iq,s| iq << :eof   }
     @scorers.each{|iq,s| s.thread.join}
@@ -81,18 +86,19 @@ module FastFind
   # vim working directory
   # vim working project directory
 
+
   class ClassicFind < FastFindPlugin
     ff_plugin :finder
 
-    def initialize(res_queues, phrase, opts)
+    def initialize(res_queues, phrase)
       @res_queues = res_queues
       @phrase     = phrase
       @thread     = Thread.new{run}
     end
 
     def run
-      IO.popen(['find','.','-name',@phrase.to_sh].join(' ')) do |find_io|
-        find_io.each_line{|line| @res_queues.each{|q| q << line}}
+      IO.popen(['find',$pwd.exp.to_sh,'-name',@phrase.to_sh].join(' ')) do |find_io|
+        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>line.strip.rel.rel($pwd)}}}
       end
     end
   end
@@ -114,4 +120,11 @@ module FastFind
 end
 
 search = ARGV[0]
+$pwd   = ARGV[1] if ARGV[1]
 FastFind.fast_find(search)
+
+rescue => exception
+  puts exception
+  puts exception.backtrace
+end
+
