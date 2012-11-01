@@ -1,6 +1,5 @@
 require 'pathname'
 require 'pp'
-Path =   Pathname unless defined?(Path)
 class Nilish
   def self.global()$__N||= self.new end
   def inspect()    "nil(ish)"       end
@@ -30,44 +29,66 @@ class Numeric;     def blank?() false end       end
 class Hash;        alias_method :blank?,:empty? end
 class Array;       alias_method :blank?,:empty? end
 
-class String
-  def fnv32() bytes.reduce(0x811c9dc5)        {|h,b|((h^b)*0x01000193)    % (1<<32)} end
-  def fnv64() bytes.reduce(0xcbf29ce484222325){|h,b|((h^b)*0x100000001b3) % (1<<64)} end
-  def method_missing(m,*a,&b) to_p.respond_to?(m) ? to_p.send(m,*a,&b) : super       end
-  def blank?()     self !~ /[^[:space:]]/                       end
-  def to_p()       Path.new(self)                                 end
-  def respond_to?(m,p=false) super || to_p.respond_to?(m,p) end
-  def ===(p)       r=super(p); r ? r : to_p===p   end
-  def to_sh()      blank? ? '' : gsub(/([^A-Za-z0-9_\-.,:\/@\n])/n, "\\\\\\1").gsub("\n","'\n'") end
-end
-
 module Enumerable
   def amap(m,*a,&b) self.map {|i|i.send(m,*a,&b)} end
   def amap!(m,*a,&b)self.map!{|i|i.send(m,*a,&b)} end
 end
 
-class Path
-  def to_p()  self             end
-  def **  (p) self+p.to_p      end
-  def r?  ()  readable_real?   end
-  def w?  ()  writable_real?   end
-  def x?  ()  executable_real? end
-  def rw? ()  r? && w?         end
-  def rwx?()  r? && w? && x?   end
-  def dir?()  directory?       end
-  def ===(p)  real.to_s==p.real.to_s              end
-  def perm?() exp.dir? ? rwx? : rw?             end
-  def exp ()  return @exp ||= self.expand_path  end
-  def real()  begin exp.realpath rescue exp end end
-  def dir()   exp.dir? ? exp : exp.dirname       end
-  def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
-  def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
-  def relation_to(other)
-    travp = other.exp.relative_path_from(exp).to_s
-    if    travp =~ /^(..\/)+$/ then :child
-    else  travp =~ /^..\// ? :stranger : :parent end
+unless defined?(Path)
+  Path = Pathname
+  class Pathname
+    alias old_init initialize
+    def initialize(*args) old_init(*args); @rc={}; @rc2={} end
+    def to_p()  self             end
+    def **  (p) self+p.to_p      end
+    def r?  ()  readable_real?   end
+    def w?  ()  writable_real?   end
+    def x?  ()  executable_real? end
+    def rw? ()  r? && w?         end
+    def rwx?()  r? && w? && x?   end
+    def dir?()  directory?       end
+    def ===(p)  real == p.real   end
+    def perm?() exp.dir? ? rwx? : rw?               end
+    def exp ()  return @exp ||= self.expand_path    end
+    def real()  begin exp.realpath rescue exp end   end
+    def dir()   exp.dir? ? exp : exp.dirname        end
+    def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
+    def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
+    def rel(p=nil,home=true)
+      p ||= Path.pwd
+      return @rc2[p.to_s] if @rc2[p.to_s]
+      sr  = real; pr  = p.real
+      se  = exp;  pe  = p.exp
+      candidates  = [sr.rel_path_from(pr), sr.rel_path_from(pe),
+        se.rel_path_from(pr), se.rel_path_from(pe)]
+      candidates += [sr.sub(ENV['HOME'],'~'), se.sub(ENV['HOME'],'~')] if home
+      @rc2[p.to_s] = candidates.sort_by{|v|v.to_s.size}[0]
+    end
+    def rel_path_from(p) @rc ||= {}; @rc[p.to_s] ||= relative_path_from(p) end
+    def relation_to(p)
+      travp = p.rel(self,false).to_s
+      if    travp =~ /^(..\/)+..(\/|$)/ then :child
+      else  travp =~ /^..\// ? :stranger : :parent end
+    end
+    alias old_mm method_missing
+    def method_missing(m,*a,&b) to_s.respond_to?(m) ? to_s.send(m,*a,&b) : old_mm(m,*a,&b) end
+  end
+
+  class String
+    def fnv32() bytes.reduce(0x811c9dc5)        {|h,b|((h^b)*0x01000193)    % (1<<32)} end
+    def fnv64() bytes.reduce(0xcbf29ce484222325){|h,b|((h^b)*0x100000001b3) % (1<<64)} end
+    alias old_mm method_missing
+    def method_missing(m,*a,&b) to_p.respond_to?(m) ? to_p.send(m,*a,&b) : old_mm(m,*a,&b) end
+    def blank?() self !~ /[^[:space:]]/      end
+    def to_p()   Path.new(self) end
+    def respond_to_missing?(m,p=false) to_p.respond_to?(m,p) end
+    alias old_eq3 ===
+    def ===(p)   r=old_eq3(p); r ? r : to_p===p   end
+    def to_sh()  blank? ? '' : gsub(/([^A-Za-z0-9_\-.,:\/@\n])/n, "\\\\\\1").gsub("\n","'\n'") end
   end
 end
+
+
 
 class Proj
   def initialize(cwd, cf)
