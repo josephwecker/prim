@@ -1,4 +1,6 @@
 require 'pathname'
+require 'etc'
+require 'set'
 require 'pp'
 class Nilish
   def self.global()$__N||= self.new end
@@ -28,11 +30,14 @@ class TrueClass;   def blank?() false end       end
 class Numeric;     def blank?() false end       end
 class Hash;        alias_method :blank?,:empty? end
 class Array;       alias_method :blank?,:empty? end
+class Set;         alias_method :blank?,:empty? end
 
 module Enumerable
   def amap(m,*a,&b) self.map {|i|i.send(m,*a,&b)} end
   def amap!(m,*a,&b)self.map!{|i|i.send(m,*a,&b)} end
 end
+
+class Set; alias_method :[],:member? end
 
 unless defined?(Path)
   Path = Pathname
@@ -55,6 +60,13 @@ unless defined?(Path)
     def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
     def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
     def rel(p=nil,home=true)
+      p ||= Path.new
+      return @rc2[p] if @rc2[p]
+      r = abs.rel_path_from(p.abs)
+      r = r.sub(ENV['HOME'],'~') if home
+      r
+    end
+    def short(p=nil,home=true)
       p ||= Path.pwd
       return @rc2[p.to_s] if @rc2[p.to_s]
       sr  = real; pr  = p.real
@@ -72,6 +84,29 @@ unless defined?(Path)
     end
     alias old_mm method_missing
     def method_missing(m,*a,&b) to_s.respond_to?(m) ? to_s.send(m,*a,&b) : old_mm(m,*a,&b) end
+    def abs(wd=nil)
+      wd ||= Pathname.pwd; wd = wd.to_s
+      s    = self.to_s
+      raise ArgumentError.new('Bad working directory- must be absolute') if wd[0].chr != '/'
+      if    s.blank? ;                                   return nil
+      elsif s[0].chr=='/' ;                              return s
+      elsif s[0].chr=='~' && (s[1].nil?||s[1].chr=='/'); _abs_i(s[1..-1], ENV['HOME'])
+      elsif s =~ /~([^\/]+)/;                            _abs_i($', Etc.getpwnam($1).dir)
+      else                                               _abs_i(s, wd) end
+    end
+
+    private
+    def _abs_i(p,wd)
+      str   = wd + '/' + p ; last  = str[-1].chr
+      combo = []
+      str.split('/').each do |part|
+        case part
+        when part.blank?, '.' then next
+        when '..' then combo.pop
+        else combo << part end
+      end
+      Path.new('/' + combo.join('/') + (last == '/' ? '/' : ''))
+    end
   end
 
   class String
@@ -82,12 +117,10 @@ unless defined?(Path)
     def blank?() self !~ /[^[:space:]]/      end
     def to_p()   Path.new(self) end
     def respond_to_missing?(m,p=false) to_p.respond_to?(m,p) end
-    alias old_eq3 ===
-    def ===(p)   r=old_eq3(p); r ? r : to_p===p   end
+    def same_path(p) to_p === p end
     def to_sh()  blank? ? '' : gsub(/([^A-Za-z0-9_\-.,:\/@\n])/n, "\\\\\\1").gsub("\n","'\n'") end
   end
 end
-
 
 
 class Proj
