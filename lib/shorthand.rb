@@ -56,11 +56,11 @@ unless defined?(Path)
     def perm?() exp.dir? ? rwx? : rw?               end
     def exp ()  return @exp ||= self.expand_path    end
     def real()  begin exp.realpath rescue exp end   end
-    def dir()   exp.dir? ? exp : exp.dirname        end
+    def dir()   (exp.dir? || to_s[-1].chr == '/') ? exp : exp.dirname end
     def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
     def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
     def rel(p=nil,home=true)
-      p ||= Path.new
+      p ||= Path.pwd
       return @rc2[p] if @rc2[p]
       r = abs.rel_path_from(p.abs)
       r = r.sub(ENV['HOME'],'~') if home
@@ -81,6 +81,11 @@ unless defined?(Path)
       travp = p.rel(self,false).to_s
       if    travp =~ /^(..\/)+..(\/|$)/ then :child
       else  travp =~ /^..\// ? :stranger : :parent end
+    end
+    def dir_dist(p)
+      travp = p.dir.rel(self.dir,false).to_s
+      $stderr.puts travp
+      return travp.split('/').size
     end
     alias old_mm method_missing
     def method_missing(m,*a,&b) to_s.respond_to?(m) ? to_s.send(m,*a,&b) : old_mm(m,*a,&b) end
