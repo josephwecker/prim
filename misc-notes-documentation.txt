@@ -1,0 +1,44 @@
+- As things are searched for they get put in a list on the left so they are
+  easy to reaccess.  Hotkeys to get to them as well.  Possibly even permanently
+  assign various hotkeys to various items.
+- When restoring state from a previous session, possibly the permanently mapped
+  plus others depending on lookup frequency.
+
+- Ability to split it (up to 3+ times) vertically so that you can look at
+  multiple areas of the same page.
+
+- Easily integrated into vim tags / autocomplete, etc.  Especially cool if it
+  could give weight to ones that you looked up more recently.
+
+- Detailed, easy search, based on stemmed word cores as a first pass then
+  levenshtein distance
+
+- Common, easy way to generate stuff
+
+- Hidden private by default but expandable
+
+- Very easy to integrate standalone documentation with inline (javadoc) type
+  documentation and even literate coding.
+
+- Integrates with compiler-level documentation tools, like python docstrings, 
+
+* Someone else's library/framework (polygonal, rails, anything on github...)
+* Language reference (as3, haxe, erlang, efene, c, etc.)
+* Gems, python libs, anything that has python documentation built into the
+  class itself...
+* Man pages / one-off utilities + command-line references
+* Your own libraries
+* Your own code as it evolves (constantly changing, even real-time?)
+
+
+
+Priorities:
+- Efene
+- Erlang
+- AS3
+- HaXe
+- Erlish
+
+
+Quite possibly a suped up manpage reader and then tools to turn more "modern"
+doc types into manpages...
