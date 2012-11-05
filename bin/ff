@@ -14,6 +14,29 @@ require   'thread'
 $pwd = Path.pwd
 
 module FastFind
+  class Res
+    attr_reader :size
+    def initialize
+      @files = {}
+      @size  = 0
+    end
+
+    def add(v)
+      p = v.delete(:path).abs($pwd).rel($pwd).to_s
+      @files[p] ||= []
+      @files[p] << v
+      @size += 1
+    end
+
+    def ordered
+      @files.sort_by{|k,ra| ra.reduce(0){|a,v| a + v[v.keys[0]]}}
+    end
+
+    def [](sel) ordered[sel] end
+
+    alias_method :<<, :add
+  end
+
   OPTIONS = Set[]
   def self.register_plugin(klass, types)
     @plugins ||= {}
@@ -24,7 +47,7 @@ module FastFind
     @phrase      = phrase_so_far
     OPTIONS << :fuzzy
 
-    @final       = []
+    @final       = FastFind::Res.new
 
     @raw_results = Queue.new
     @scored_res  = Queue.new
@@ -45,6 +68,10 @@ module FastFind
     last_count    = 0
     while (new_item = @scored_res.pop) != :eof
       @final << new_item
+
+
+
+      # TODO: reorganize, etc.
       if Time.now - last_reported > 1 && last_count < @final.size
         last_reported = Time.now
         last_count    = @final.size
@@ -103,7 +130,7 @@ module FastFind
         phrase = '*' + @phrase.each_char.to_a.join('*').gsub(/[a-z]/){|c| "[#{c}#{c.upcase}]"}+'*'
       else phrase = @phrase end
       IO.popen(['cd',$pwd.to_sh,'&&','find','.','-path',phrase.to_sh].join(' ')) do |find_io|
-        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>Path.new(line.strip)}}}
+        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>Path.new(line.strip).abs($pwd)}}}
       end
     end
   end
@@ -116,6 +143,7 @@ module FastFind
     end
 
     def score_item(item)
+      item[:fdist] = item[:path].dist_from($pwd)
       item
     end
   end
