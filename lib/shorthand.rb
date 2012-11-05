@@ -60,14 +60,14 @@ unless defined?(Path)
     def dir!()  (exp.mkdir unless exp.dir? rescue return nil); self end
     def [](p)   Path.glob((dir + p.to_s).to_s, File::FNM_DOTMATCH)  end
     def rel(p=nil,home=true)
-      p ||= Path.pwd
+      p ||= ($pwd || Path.pwd)
       return @rc2[p] if @rc2[p]
       r = abs.rel_path_from(p.abs)
       r = r.sub(ENV['HOME'],'~') if home
       r
     end
     def short(p=nil,home=true)
-      p ||= Path.pwd
+      p ||= ($pwd || Path.pwd)
       return @rc2[p.to_s] if @rc2[p.to_s]
       sr  = real; pr  = p.real
       se  = exp;  pe  = p.exp
@@ -82,15 +82,16 @@ unless defined?(Path)
       if    travp =~ /^(..\/)+..(\/|$)/ then :child
       else  travp =~ /^..\// ? :stranger : :parent end
     end
-    def dir_dist(p)
+    def dist_from(p)
+      return 0 if self === p
       travp = p.dir.rel(self.dir,false).to_s
-      $stderr.puts travp
-      return travp.split('/').size
+      return 1 if travp =~ /^\/?\.\/?$/
+      return travp.split('/').size + 1
     end
     alias old_mm method_missing
     def method_missing(m,*a,&b) to_s.respond_to?(m) ? to_s.send(m,*a,&b) : old_mm(m,*a,&b) end
     def abs(wd=nil)
-      wd ||= Pathname.pwd; wd = wd.to_s
+      wd ||= ($pwd || Path.pwd); wd = wd.to_s
       s    = self.to_s
       raise ArgumentError.new('Bad working directory- must be absolute') if wd[0].chr != '/'
       if    s.blank? ;                                   return nil
