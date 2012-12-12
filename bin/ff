@@ -5,13 +5,15 @@
 # - score all candidates
 # - update sorted outputs as data becomes available (?)
 #
+
+require 'pathname'; module Kernel; def require_r(p) require File.join(File.dirname(Pathname.new(caller[0].gsub(/:[^\/]+$/,'')).realpath),p) end end
+
 begin
-module Kernel; def require_r(p) require File.join(File.dirname(caller[0]), p.to_str) end end
 require_r '../lib/shorthand.rb'
 require_r '../lib/vim.rb'
 require   'thread'
 
-$pwd = Path.pwd
+#$pwd = Path.pwd
 
 module FastFind
   class Res
@@ -23,13 +25,15 @@ module FastFind
 
     def add(v)
       p = v.delete(:path).abs($pwd).rel($pwd).to_s
-      @files[p] ||= []
-      @files[p] << v
+      @files[p] ||= {}
+      @files[p].merge!(v){|k,ov,nv| ov+nv}
       @size += 1
     end
 
     def ordered
-      @files.sort_by{|k,ra| ra.reduce(0){|a,v| a + v[v.keys[0]]}}
+      #$stderr.puts @files.pretty_inspect
+      @files.sort_by{|k,r| - r.values.reduce(:+)}
+      #@files.sort_by{|k,ra| - ra.reduce(0){|a,v| a + v[v.keys[0]]}}
     end
 
     def [](sel) ordered[sel] end
@@ -37,63 +41,78 @@ module FastFind
     alias_method :<<, :add
   end
 
-  OPTIONS = Set[]
-  def self.register_plugin(klass, types)
-    @plugins ||= {}
-    [*types].each{|t| @plugins[t] ||= []; @plugins[t] << klass}
-  end
+  class FastFinder
+    attr_reader :opts, :pwd, :phrase, :rfile
 
-  def self.fast_find(phrase_so_far)
-    @phrase      = phrase_so_far
-    OPTIONS << :fuzzy
-
-    @final       = FastFind::Res.new
-
-    @raw_results = Queue.new
-    @scored_res  = Queue.new
-
-    @scorers     = @plugins[:scorer].map{|s| [qto=Queue.new,s.new(qto,@scored_res)]}
-    @finders     = @plugins[:finder].amap(:new,@scorers.amap(:[],0),@phrase)
-    @reporter    = Thread.new{reporting_loop}
-
-    @finders.each{|f|    f.thread.join}
-    @scorers.each{|iq,s| iq << :eof   }
-    @scorers.each{|iq,s| s.thread.join}
-    @scored_res << :eof
-    @reporter.join
-  end
-
-  def self.reporting_loop
-    last_reported = Time.now - 0.85
-    last_count    = 0
-    while (new_item = @scored_res.pop) != :eof
-      @final << new_item
-
-
-
-      # TODO: reorganize, etc.
-      if Time.now - last_reported > 1 && last_count < @final.size
-        last_reported = Time.now
-        last_count    = @final.size
-        report_update
-      end
+    def self.register_plugin(klass, types)
+      @@plugins ||= {}
+      [*types].each{|t| @@plugins[t] ||= []; @@plugins[t] << klass}
     end
-    report_update if @final.size > last_count
-  end
 
-  def self.report_update
-    $stderr.puts '--------------'
-    $stderr.puts @final[0..100].pretty_inspect
-    $stderr.flush
+    def initialize(phrase_so_far, wd=nil, related_file=nil)
+      @opts        = Set[]
+
+      @pwd         = wd || Path.pwd
+      @pwd         = @pwd.real
+      Dir.chdir      @pwd
+      $pwd         = @pwd
+      @rfile       = related_file
+      @phrase      = phrase_so_far
+      @opts       << :fuzzy
+
+      @final       = FastFind::Res.new
+
+      @raw_results = Queue.new
+      @scored_res  = Queue.new
+    end
+
+    def fast_find
+      @scorers     = @@plugins[:scorer].map{|s| [qto=Queue.new,s.new(self,qto,@scored_res)]}
+      @finders     = @@plugins[:finder].amap(:new,self,@scorers.amap(:[],0),@phrase)
+      @reporter    = Thread.new{reporting_loop}
+
+      @finders.each{|f|    f.thread.join}
+      @scorers.each{|iq,s| iq << :eof   }
+      @scorers.each{|iq,s| s.thread.join}
+      @scored_res << :eof
+      @reporter.join
+    end
+
+    def phrase() @phrase end
+
+    def reporting_loop
+      last_reported = Time.now - 0.85
+      last_count    = 0
+      while (new_item = @scored_res.pop) != :eof
+        @final << new_item
+
+
+
+        # TODO: reorganize, etc.
+        if Time.now - last_reported > 1 && last_count < @final.size
+          last_reported = Time.now
+          last_count    = @final.size
+          report_update
+        end
+      end
+      report_update if @final.size > last_count
+    end
+
+    def report_update
+      $stderr.puts '--------------'
+      $stderr.puts @final[0..100].pretty_inspect
+      $stderr.flush
+    end
   end
 
   class FastFindPlugin
     attr_accessor :thread
-    def self.ff_plugin(types) FastFind.register_plugin(self, types) end
+    def self.ff_plugin(types) FastFind::FastFinder.register_plugin(self, types) end
   end
 
   class FastFindScorer < FastFindPlugin
-    def initialize(in_queue, out_queue)
+    def initialize(parent_ff, in_queue, out_queue)
+      @ff        = parent_ff
       @in_queue  = in_queue
       @out_queue = out_queue
       @thread    = Thread.new{run}
@@ -119,31 +138,39 @@ module FastFind
   class ClassicFind < FastFindPlugin
     ff_plugin :finder
 
-    def initialize(res_queues, phrase)
+    def initialize(parent_ff, res_queues, phrase)
+      @ff         = parent_ff
       @res_queues = res_queues
       @phrase     = phrase
       @thread     = Thread.new{run}
     end
 
     def run
-      if OPTIONS[:fuzzy]
+      if @ff.opts[:fuzzy]
         phrase = '*' + @phrase.each_char.to_a.join('*').gsub(/[a-z]/){|c| "[#{c}#{c.upcase}]"}+'*'
       else phrase = @phrase end
-      IO.popen(['cd',$pwd.to_sh,'&&','find','.','-path',phrase.to_sh].join(' ')) do |find_io|
-        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>Path.new(line.strip).abs($pwd)}}}
+      IO.popen(['find','.','-type','f','-path',phrase.to_sh].join(' ')) do |find_io|
+        find_io.each_line{|line| @res_queues.each{|q| q << {:path=>Path.new(line.strip)}}}
       end
     end
   end
 
+#------------------------------------------------------------------------------------------------
   class BasicContextScore < FastFindScorer
     ff_plugin :scorer
-    def initialize(in_queue, out_queue)
+    def initialize(parent_ff, in_queue, out_queue)
       # TODO: any setup
-      super(in_queue, out_queue)
+      super(parent_ff, in_queue, out_queue)
     end
 
     def score_item(item)
-      item[:fdist] = item[:path].dist_from($pwd)
+      p = item[:path]
+      item[:path_dist] = 1.0 / (p.dist_from($pwd).to_f + 1.0)
+      item[:visibility]= (p.to_s =~ /(\/|^)\.[^\/]+/  ?
+                          (p.basename.to_s[0..0]=='.' ? -1.0 : 0.0) : 1.0)
+      # TODO: same repo
+      #      - parent repos
+      #      - text similarity
       item
     end
   end
@@ -152,10 +179,9 @@ module FastFind
   end
 end
 
-search = ARGV[0]
-$pwd   = ARGV[1] if ARGV[1]
-$pwd   = $pwd.real
-FastFind.fast_find(search)
+#------------------------------------------------------------------------------------------------
+ff = FastFind::FastFinder.new(ARGV[0], ARGV[1], ARGV[2])
+ff.fast_find
 
 rescue => exception
   puts exception
