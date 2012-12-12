@@ -63,6 +63,19 @@ one actually being modified...
 
 
 
+fuzzy file search priority (possibly also for inner text + tags):
+  - cwd
+  - cwd children (careful of cycles)
+  - some env path variable(s)?
+  - (files w/ same "family" of filetype [e.g., *.h/*.c...] as current "main" buffer)
+  - sibling directories
+  - parent directories- esp. within project
+  - if inside-project fails to do anything meaningful, try whereis + locate
+  - finally, a "find" from root directory may be appropriate if the user -really- really wants something
+
+
+
+
 
 A kind of grep that instead of just -A/B/C for context lines, actually shows
 language-context- like module/function/relevant-path-forks (if-statements) etc.
