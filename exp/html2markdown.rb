@@ -156,4 +156,4 @@ class HTML2Markdown
 end
 
 
-puts HTML2Markdown.new(ARGF.read).to_s
+puts HTML2Markdown.new(ARGF.read.gsub("\r",'')).to_s
